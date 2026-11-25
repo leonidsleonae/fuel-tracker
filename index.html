@@ -77,6 +77,13 @@
   .month-row .m{font-weight:600}
   .month-row .s{display:block;color:var(--muted);font-size:.85rem}
   .month-row .v{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cat-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 4px;border-top:1px solid var(--line)}
+  .cat-row:first-child{border-top:0}
+  .cat-row .n{font-weight:600}
+  .cat-row .s{display:block;color:var(--muted);font-size:.85rem}
+  .cat-row .v{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cat-row.total{border-top:2px solid var(--ink);margin-top:6px;padding-top:12px}
+  .cat-row.total .v{font-size:1.2rem}
   .filter{display:flex;gap:10px;align-items:center;margin:8px 0 4px}
   .filter select{flex:1}
   .sum{color:var(--muted);font-size:.9rem;margin:4px 0 8px}
@@ -160,6 +167,13 @@
           <label for="price">ราคาน้ำมัน (บาท/ลิตร)</label>
           <input id="price" type="number" inputmode="decimal" min="0" step="0.01">
         </div>
+        <div class="full" id="catWrap" hidden>
+          <label for="cat">หมวดหมู่</label>
+          <select id="cat">
+            <option value="work">ไปทำงาน</option>
+            <option value="partner">ไปหาแฟน</option>
+          </select>
+        </div>
         <div class="full">
           <label for="note">หมายเหตุ (ไม่บังคับ)</label>
           <input id="note" type="text" maxlength="60" placeholder="เช่น บ้าน → โรงเรียน">
@@ -176,6 +190,12 @@
     <section class="card">
       <h2>สรุปรายเดือน</h2>
       <div id="months"></div>
+    </section>
+
+    <section class="card" id="catCard" hidden>
+      <h2>ค่าน้ำมันแยกตามหมวดหมู่</h2>
+      <p class="sum" id="catPeriod"></p>
+      <div id="catLog"></div>
     </section>
 
     <section class="card" id="historyCard">
@@ -211,8 +231,9 @@
 <script>
 (function(){
   // ผู้ดูแลแก้บรรทัดนี้ครั้งเดียว: วาง Web App URL (ลงท้ายด้วย /exec) จาก Google Apps Script
-  var API_URL = "https://script.google.com/macros/s/AKfycbyiDtgNtd9q88QlIknsmSUYzman9SfFJMoYv8C9MDAaqm8UnyxmPMpS3UsqDAdLTDXx/exec";
+  var API_URL = "วาง_WEB_APP_URL_ที่นี่";
 
+  var CATS = { work:"ไปทำงาน", partner:"ไปหาแฟน" };
   var SESSION_KEY = "fuel-session";
   var OLD_KEY = "fuel-tracker-v1";
   var $ = function(id){ return document.getElementById(id); };
@@ -349,6 +370,14 @@
       var sub = document.createElement("span"); sub.className = "s";
       sub.textContent = fmtKm(st.km)+" กม. · "+st.n+" เที่ยว"+(st.km>0 ? " · เฉลี่ย "+fmt(st.cost/st.km)+" บาท/กม." : "");
       left.appendChild(name); left.appendChild(sub);
+      if(data.admin && st.cats && (st.cats.work || st.cats.partner)){
+        var parts = [];
+        if(st.cats.work) parts.push("ไปทำงาน "+fmt(st.cats.work));
+        if(st.cats.partner) parts.push("ไปหาแฟน "+fmt(st.cats.partner));
+        if(st.cats[""]) parts.push("ไม่ระบุ "+fmt(st.cats[""]));
+        var cs = document.createElement("span"); cs.className = "s"; cs.textContent = parts.join(" · ");
+        left.appendChild(cs);
+      }
       var v = document.createElement("span"); v.className = "v"; v.textContent = fmt(st.cost)+" บาท";
       b.appendChild(left); b.appendChild(v);
       b.addEventListener("click", function(){
@@ -360,24 +389,63 @@
     });
   }
 
+  function renderCats(pc, total){
+    var card = $("catCard");
+    card.hidden = !(data && data.admin);
+    if(card.hidden) return;
+    $("catPeriod").textContent = filterMonth ? monthLabel(filterMonth) : "ทุกเดือน";
+    var box = $("catLog"); box.textContent = "";
+    if(!total){
+      var e = document.createElement("p"); e.className = "empty"; e.textContent = "ยังไม่มีข้อมูลในช่วงนี้";
+      box.appendChild(e); return;
+    }
+    var sumKm = 0, sumN = 0;
+    ["work","partner",""].forEach(function(k){
+      var v = pc[k]; if(!v) return;
+      sumKm += v.km; sumN += v.n;
+      var row = document.createElement("div"); row.className = "cat-row";
+      var left = document.createElement("span");
+      var n = document.createElement("span"); n.className = "n";
+      n.textContent = k ? "ค่าน้ำมัน"+CATS[k] : "ไม่ระบุหมวดหมู่";
+      var sub = document.createElement("span"); sub.className = "s";
+      sub.textContent = fmtKm(v.km)+" กม. · "+v.n+" เที่ยว · "+Math.round(v.cost/total*100)+"%";
+      left.appendChild(n); left.appendChild(sub);
+      var val = document.createElement("span"); val.className = "v"; val.textContent = fmt(v.cost)+" บาท";
+      row.appendChild(left); row.appendChild(val); box.appendChild(row);
+    });
+    var tr = document.createElement("div"); tr.className = "cat-row total";
+    var tl = document.createElement("span");
+    var tn = document.createElement("span"); tn.className = "n"; tn.textContent = "รวมทุกหมวดหมู่";
+    var ts = document.createElement("span"); ts.className = "s"; ts.textContent = fmtKm(sumKm)+" กม. · "+sumN+" เที่ยว";
+    tl.appendChild(tn); tl.appendChild(ts);
+    var tv = document.createElement("span"); tv.className = "v"; tv.textContent = fmt(total)+" บาท";
+    tr.appendChild(tl); tr.appendChild(tv); box.appendChild(tr);
+  }
+
   function render(){
     if(!data) return;
     if(filterMonth && !data.trips.some(function(x){ return x.date.slice(0,7)===filterMonth; })) filterMonth = "";
-    var t = todayISO(), ym = t.slice(0,7), today=0, month=0, days = {}, stats = {}, rc=0, rk=0, rn=0;
+    var t = todayISO(), ym = t.slice(0,7), today=0, month=0, days = {}, stats = {}, rc=0, rk=0, rn=0, pc = {};
     data.trips.forEach(function(x){
       var m = x.date.slice(0,7);
       if(x.date===t) today+=x.cost;
       if(m===ym) month+=x.cost;
       var st = stats[m] = stats[m] || {cost:0, km:0, n:0};
       st.cost += x.cost; st.km += x.km; st.n++;
+      var ck = CATS[x.cat] ? x.cat : "";
+      st.cats = st.cats || {}; st.cats[ck] = (st.cats[ck] || 0) + x.cost;
       if(!filterMonth || m===filterMonth){
         (days[x.date] = days[x.date] || []).push(x);
         rc += x.cost; rk += x.km; rn++;
+        var p = pc[ck] = pc[ck] || {cost:0, km:0, n:0};
+        p.cost += x.cost; p.km += x.km; p.n++;
       }
     });
     $("today").textContent = fmt(today);
     $("month").textContent = fmt(month);
+    $("catWrap").hidden = !data.admin;
     renderMonths(stats);
+    renderCats(pc, rc);
     $("rangeSum").textContent = rn ? ((filterMonth ? monthLabel(filterMonth) : "ทุกเดือน")+" รวม "+fmt(rc)+" บาท · "+fmtKm(rk)+" กม. · "+rn+" เที่ยว") : "";
 
     var log = $("log");
@@ -402,7 +470,7 @@
       list.slice().reverse().forEach(function(x){
         var row = document.createElement("div"); row.className="trip";
         var info = document.createElement("span");
-        info.textContent = x.km+" กม."+(x.note?" · "+x.note:"");
+        info.textContent = x.km+" กม."+(CATS[x.cat]?" · "+CATS[x.cat]:"")+(x.note?" · "+x.note:"");
         var right = document.createElement("span");
         var c = document.createElement("span"); c.className="c"; c.textContent=fmt(x.cost)+" บาท ";
         var b = document.createElement("button"); b.className="del"; b.type="button";
@@ -434,9 +502,10 @@
     data.trips.push({
       id: Date.now()+"-"+Math.random().toString(36).slice(2,6),
       date: date, km: km, kmpl: kmpl, price: price,
-      note: $("note").value.trim(), cost: cost, synced: false
+      note: $("note").value.trim(), cost: cost, synced: false,
+      cat: data.admin ? $("cat").value : ""
     });
-    data.settings = { kmpl:kmpl, price:price };
+    data.settings = { kmpl:kmpl, price:price, cat: data.admin ? $("cat").value : (data.settings.cat || "work") };
     persist();
     $("km").value=""; $("note").value="";
     preview(); render(); sync(); $("km").focus();
@@ -455,10 +524,15 @@
   }
   function exportCSV(){
     if(!data.trips.length){ $("err").textContent="ยังไม่มีข้อมูลให้ดาวน์โหลด"; return; }
-    var rows = [["วันที่","ระยะทาง (กม.)","กม./ลิตร","ราคา (บาท/ลิตร)","ลิตร","ค่าน้ำมัน (บาท)","หมายเหตุ"]];
+    var adm = !!data.admin;
+    var head = ["วันที่","ระยะทาง (กม.)","กม./ลิตร","ราคา (บาท/ลิตร)","ลิตร","ค่าน้ำมัน (บาท)","หมายเหตุ"];
+    if(adm) head.push("หมวดหมู่");
+    var rows = [head];
     data.trips.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; })
       .forEach(function(x){
-        rows.push([x.date,x.km,x.kmpl,x.price,(x.km/x.kmpl).toFixed(2),x.cost.toFixed(2),x.note||""]);
+        var r = [x.date,x.km,x.kmpl,x.price,(x.km/x.kmpl).toFixed(2),x.cost.toFixed(2),x.note||""];
+        if(adm) r.push(CATS[x.cat]||"");
+        rows.push(r);
       });
     downloadCSV(rows, "fuel-log.csv");
   }
@@ -528,7 +602,7 @@
       (function(chunk){
         p = p.then(function(){
           return call("add",{token:tok, trips:chunk.map(function(t){
-            return {id:t.id, date:t.date, km:t.km, kmpl:t.kmpl, price:t.price, note:t.note||""};
+            return {id:t.id, date:t.date, km:t.km, kmpl:t.kmpl, price:t.price, note:t.note||"", category:t.cat||""};
           })});
         }).then(function(){ chunk.forEach(function(t){ t.synced = true; }); });
       })(unsynced.slice(i,i+100));
@@ -545,7 +619,7 @@
       res.trips.forEach(function(r){
         if(!have[r.id] && data.pending.indexOf(r.id)<0){
           data.trips.push({id:r.id, date:r.date, km:r.km, kmpl:r.kmpl, price:r.price,
-                           note:r.note, cost:r.cost, synced:true});
+                           note:r.note, cost:r.cost, synced:true, cat:r.category||""});
         }
       });
       setStatus("ซิงก์แล้วเมื่อ "+new Date().toLocaleTimeString("th-TH"));
@@ -569,6 +643,7 @@
     $("date").value = todayISO();
     $("kmpl").value = data.settings.kmpl;
     $("price").value = data.settings.price;
+    $("cat").value = data.settings.cat || "work";
     $("km").value = ""; $("note").value = ""; $("err").textContent = "";
     setStatus("");
     show("app");
@@ -602,7 +677,7 @@
         localStorage.removeItem(SESSION_KEY);
       }catch(e){}
       session = null; data = null; adminData = null; filterMonth = "";
-      $("adminCard").hidden = true;
+      $("adminCard").hidden = true; $("catCard").hidden = true; $("catWrap").hidden = true;
       $("user").value = "";
       showAuth("");
     });
